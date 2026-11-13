@@ -1,0 +1,939 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Smart City AQI Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout concept: sticky inputs rail on the left, results column on the right (stacked on phones), sticky top bar carries a live AQI readout. */
+:root {
+  --bg: #F4F6FA; --bg-top: #FFFFFF; --surface: #FFFFFF; --surface-2: #EDF1F7;
+  --ink: #0F1B2D; --muted: #5B6B80; --line: #DCE3EC;
+  --accent: #0B7285; --accent-ink: #FFFFFF; --accent-soft: #DDF1F4;
+  --base: #4C5BD4; --prop: #0E9F6E; --on-pill: #FFFFFF;
+  --good: #2FA463; --sat: #8CC23F; --mod: #EDC21F; --poor: #F28C1E; --vpoor: #E0413E; --severe: #9A1B3A;
+  --c-veh: #3B82C4; --c-ind: #C36F14; --c-pow: #8B6CC1; --c-bg: #8794A6; --c-oth: #5E8F4A;
+  --on-seg: #FFFFFF; --good-ink: #127A4A; --bad-ink: #B42E2A;
+  --hero-a: #0F2A44; --hero-b: #0B6E78;
+  --f-display: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --f-body: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B1220; --bg-top: #0B1220; --surface: #111B2E; --surface-2: #18243A;
+    --ink: #E6EDF7; --muted: #93A3BA; --line: #24344F;
+    --accent: #3CC4D6; --accent-ink: #04141A; --accent-soft: #12303A;
+    --base: #8F9BFF; --prop: #38D39F; --on-pill: #06121C;
+    --good: #43B873; --sat: #9BCD4D; --mod: #EFCB3F; --poor: #F59E42; --vpoor: #EE6262; --severe: #CF4565;
+    --c-veh: #6FB0EA; --c-ind: #EDA14E; --c-pow: #B49CE6; --c-bg: #8294AD; --c-oth: #8FC277;
+    --on-seg: #07101C; --good-ink: #6FDDA8; --bad-ink: #FF9488;
+    --hero-a: #10304F; --hero-b: #0D6670;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B1220; --bg-top: #0B1220; --surface: #111B2E; --surface-2: #18243A;
+  --ink: #E6EDF7; --muted: #93A3BA; --line: #24344F;
+  --accent: #3CC4D6; --accent-ink: #04141A; --accent-soft: #12303A;
+  --base: #8F9BFF; --prop: #38D39F; --on-pill: #06121C;
+  --good: #43B873; --sat: #9BCD4D; --mod: #EFCB3F; --poor: #F59E42; --vpoor: #EE6262; --severe: #CF4565;
+  --c-veh: #6FB0EA; --c-ind: #EDA14E; --c-pow: #B49CE6; --c-bg: #8294AD; --c-oth: #8FC277;
+  --on-seg: #07101C; --good-ink: #6FDDA8; --bad-ink: #FF9488;
+  --hero-a: #10304F; --hero-b: #0D6670;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14.5px; line-height: 1.55; font-variant-numeric: tabular-nums; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg-top); }
+h1, h2, h3 { font-family: var(--f-display); margin: 0; line-height: 1.2; text-wrap: balance; }
+h1 { font-size: clamp(26px, 4.2vw, 38px); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 20px; font-weight: 700; }
+h3 { font-size: 15px; font-weight: 700; }
+p { margin: 0; }
+a { color: var(--accent); }
+button, select, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gut { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+/* top bar */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg-top); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 1440px; margin: 0 auto; display: flex; align-items: center; gap: 16px; min-height: 56px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--f-display); font-weight: 700; font-size: 16px; color: var(--ink); text-decoration: none; white-space: nowrap; }
+.brand svg { color: var(--accent); flex: none; }
+.tabs { display: flex; gap: 4px; margin-left: 8px; }
+.tabs a { padding: 8px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 500; }
+.tabs a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+.live { margin-left: auto; display: flex; align-items: center; gap: 10px; font-weight: 600; white-space: nowrap; }
+.live small { color: var(--muted); font-weight: 500; font-size: 12px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; background: var(--muted); }
+
+/* shell */
+.shell { max-width: 1440px; margin: 0 auto; padding-block: 20px 40px; display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 28px; align-items: start; }
+.side { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 72px); max-height: calc(100vh - 92px - env(safe-area-inset-top, 0px)); overflow: auto; }
+.side-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; font-size: 12.5px; cursor: pointer; color: var(--ink); }
+.chip:hover { border-color: var(--accent); }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn-ghost { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+fieldset.grp { border: 0; border-top: 1px solid var(--line); margin: 14px 0 0; padding: 12px 0 0; min-width: 0; }
+fieldset.grp legend { padding: 0 8px 0 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; float: left; width: 100%; margin-bottom: 8px; }
+fieldset.grp legend + * { clear: both; }
+.ctl { margin-bottom: 14px; }
+.ctl-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ctl-h label, .ctl-h span { font-weight: 500; font-size: 13.5px; }
+.ctl-h output { font-weight: 600; color: var(--accent); }
+.ctl input[type="range"] { width: 100%; accent-color: var(--accent); margin: 6px 0 0; }
+.ctl-f { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); gap: 6px; }
+.ctl-f span:nth-child(2):not(:last-child) { color: var(--accent); }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-top: 6px; }
+.seg button { border: 0; border-right: 1px solid var(--line); background: var(--surface); padding: 7px 2px; font-size: 12.5px; cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.sel { width: 100%; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; margin-top: 8px; cursor: pointer; }
+.check input { margin-top: 3px; accent-color: var(--accent); }
+.fine { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+/* main */
+.main { min-width: 0; display: flex; flex-direction: column; gap: 26px; }
+.eyebrow { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.hero-card { background: linear-gradient(120deg, var(--hero-a), var(--hero-b)); color: #fff; border-radius: 14px; padding: 24px 24px 22px; }
+.hero-card .eyebrow { color: rgba(255, 255, 255, 0.74); }
+.hero-card p.sub { color: rgba(255, 255, 255, 0.88); margin-top: 8px; font-size: 13.5px; }
+.callout { background: rgba(255, 255, 255, 0.15); color: #fff; border-radius: 10px; padding: 12px 16px; font-size: 13.5px; margin-top: 14px; }
+.sec-h { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.sec-h p { color: var(--muted); font-size: 13px; margin-top: 4px; max-width: 70ch; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.kpi .l { font-size: 12px; color: var(--muted); font-weight: 500; }
+.kpi .v { font-family: var(--f-display); font-size: 34px; font-weight: 700; line-height: 1.15; margin-top: 4px; }
+.kpi .v.cat { font-size: 22px; padding-top: 8px; }
+.kpi .v small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.kpi .s { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.delta { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.delta.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good-ink); }
+.delta.bad { background: color-mix(in srgb, var(--vpoor) 16%, transparent); color: var(--bad-ink); }
+.delta.flat { background: var(--surface-2); color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 8px; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
+.band-wrap { padding: 18px 14px 20px; }
+.band { display: flex; border-radius: 8px; overflow: hidden; }
+.band i { flex: 1 1 0; min-width: 0; height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-style: normal; overflow: hidden; }
+.band i b { font-size: clamp(6.5px, 1.75vw, 9px); font-weight: 600; line-height: 1.15; white-space: nowrap; }
+.band i span { font-size: clamp(6px, 1.5vw, 8px); opacity: 0.85; line-height: 1.25; }
+.mrow { position: relative; height: 36px; }
+.mk-l { position: absolute; transform: translateX(-50%); padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--on-pill); white-space: nowrap; }
+.mk-l.base { background: var(--base); } .mk-l.prop { background: var(--prop); }
+.mrow.up .mk-l { top: 0; } .mrow.dn .mk-l { bottom: 0; }
+.mk-a { position: absolute; width: 0; height: 0; transform: translateX(-50%); border-left: 7px solid transparent; border-right: 7px solid transparent; }
+.mrow.up .mk-a { bottom: 0; border-top: 9px solid; } .mrow.dn .mk-a { top: 0; border-bottom: 9px solid; }
+.mk-a.base { border-top-color: var(--base); border-bottom-color: var(--base); }
+.mk-a.prop { border-top-color: var(--prop); border-bottom-color: var(--prop); }
+.scale { position: relative; height: 14px; margin-top: 5px; font-size: 10.5px; color: var(--muted); }
+.scale span { position: absolute; transform: translateX(-50%); top: 0; }
+.advice { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; font-size: 13.5px; }
+.advice .dot { margin-top: 6px; }
+.who-h { display: flex; gap: 8px; align-items: center; }
+.who p { color: var(--muted); font-size: 13px; margin-top: 8px; }
+.who p.cfg { color: var(--ink); }
+.who-k { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; font-size: 13.5px; }
+.sw.lg { width: 14px; height: 14px; border-radius: 4px; }
+.sw.base { background: var(--base); } .sw.prop { background: var(--prop); }
+
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.chart { width: 100%; min-height: 40px; }
+.chart svg { display: block; max-width: 100%; overflow: visible; }
+.chart text { font-family: var(--f-body); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.chart text.vl-in { stroke: none; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); margin: 8px 0 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.ax { fill: var(--muted); font-size: 11px; }
+.vl { fill: var(--ink); font-size: 11px; font-weight: 600; }
+.vl-in { fill: var(--on-seg); font-size: 11px; font-weight: 600; }
+.gl { stroke: var(--line); stroke-width: 1; }
+.readout { min-height: 22px; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.readout b { color: var(--ink); }
+
+.tw { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+td.n, th.n { text-align: right; }
+tr:last-child td { border-bottom: 0; }
+td .dot { margin-right: 7px; }
+.neg { color: var(--good-ink); font-weight: 600; } .pos { color: var(--bad-ink); font-weight: 600; } .zero { color: var(--muted); }
+.toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.toggle button { border: 0; background: var(--surface); padding: 6px 12px; cursor: pointer; font-size: 12.5px; border-right: 1px solid var(--line); }
+.toggle button:last-child { border-right: 0; }
+.toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+ul.ins { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+.note { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+.btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; cursor: pointer; }
+.btn:hover { filter: brightness(1.08); }
+textarea.sum { width: 100%; min-height: 150px; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 10px; font: 12.5px/1.5 var(--f-body); }
+
+/* method view */
+.doc { max-width: 1040px; margin: 0 auto; padding-block: 24px 48px; display: grid; gap: 22px; }
+.doc .card { display: grid; gap: 10px; }
+.doc ol, .doc ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+pre.eq { margin: 0; background: var(--surface-2); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font: 12.5px/1.7 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.sdg { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.sdg div { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.sdg b { display: block; font-family: var(--f-display); }
+footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+footer div { max-width: 1440px; margin: 0 auto; padding-block: 18px 28px; }
+
+@media (max-width: 960px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .side { position: static; max-height: none; }
+  .grid2, .cols { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .brand span { display: none; }
+  .tabs { margin-left: 0; }
+  .live small { display: none; }
+  .kpi .v { font-size: 30px; }
+  .top-in { gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="top-in gut">
+    <a class="brand" href="#simulator">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10Z"/><path d="M2 21c0-3 1.9-5.2 5-6.5 2.5-1 5-1.5 8-4"/></svg>
+      <span>Smart City AQI Simulator</span>
+    </a>
+    <nav class="tabs" aria-label="Views">
+      <a href="#simulator" id="tab-simulator">Simulator</a>
+      <a href="#method" id="tab-method">Method</a>
+    </nav>
+    <div class="live" id="live" aria-live="polite"></div>
+  </div>
+</header>
+
+<main>
+  <section id="view-simulator">
+    <div class="shell gut">
+      <aside class="side" id="side" aria-label="Proposed city inputs"></aside>
+
+      <div class="main">
+        <div class="hero hero-card">
+          <div class="eyebrow">Environmental Science and Sustainability · Course project</div>
+          <h1 style="margin-top:8px">Smart City Air Quality &amp; Sustainability Simulator</h1>
+          <p class="sub">Interactive educational scenario model · Indian CPCB-style AQI breakpoints</p>
+        </div>
+
+        <section aria-labelledby="h-who">
+          <div class="sec-h"><div><h2 id="h-who">What you are comparing</h2></div></div>
+          <div class="grid2" id="who"></div>
+        </section>
+
+        <section aria-labelledby="h-res">
+          <div class="sec-h">
+            <div><h2 id="h-res">Estimated result</h2><p id="scen-name"></p></div>
+            <button class="btn" type="button" id="copy">Copy scenario summary</button>
+          </div>
+          <div class="kpis" id="kpis"></div>
+          <div id="sumbox" hidden><textarea class="sum" id="sumtxt" readonly aria-label="Scenario summary"></textarea></div>
+          <div class="card band-wrap" style="margin-top:12px">
+            <div class="mrow up" id="mup"></div><div class="band" id="band"></div><div class="mrow dn" id="mdn"></div><div class="scale" id="scale"></div><div class="advice" id="advice"></div>
+          </div>
+        </section>
+
+        <section aria-labelledby="h-cmp">
+          <div class="sec-h"><div><h2 id="h-cmp">Baseline vs proposed city</h2><p>Sub-indices use CPCB breakpoints; the AQI is the highest one. Shaded bands mark the CPCB categories. CO₂ shows modelled sources by sector, with the green-cover sink noted separately.</p></div></div>
+          <div class="grid2">
+            <div class="card"><h3>AQI sub-indices by pollutant</h3>
+              <div class="legend"><span><i class="sw" style="background:var(--base)"></i>Baseline</span><span><i class="sw" style="background:var(--prop)"></i>Proposed</span></div>
+              <div class="chart" id="ch-sub"></div></div>
+            <div class="card"><h3>Illustrative daily carbon emissions (tonnes CO₂/day)</h3>
+              <div class="legend"><span><i class="sw" style="background:var(--c-veh)"></i>Vehicles</span><span><i class="sw" style="background:var(--c-ind)"></i>Industry</span><span><i class="sw" style="background:var(--c-pow)"></i>Buildings &amp; power</span></div>
+              <div class="chart" id="ch-co2"></div></div>
+          </div>
+        </section>
+
+        <section aria-labelledby="h-co2">
+          <div class="sec-h"><div><h2 id="h-co2">Carbon emissions</h2><p>Modelled CO₂ from vehicles, industry and buildings and power, minus what green cover absorbs. Coefficients are illustrative.</p></div></div>
+          <div class="card" style="padding:0"><div class="tw" id="co2tbl"></div></div>
+        </section>
+
+        <section aria-labelledby="h-tab">
+          <div class="sec-h"><div><h2 id="h-tab">Estimated pollutant concentrations and sub-indices</h2></div></div>
+          <div class="card" style="padding:0"><div class="tw" id="tbl"></div></div>
+        </section>
+
+        <section aria-labelledby="h-drv">
+          <div class="sec-h"><div><h2 id="h-drv">Where each pollutant comes from</h2><p>Share of each pollutant in the proposed city by source. Regional background is outside the city's control; the other three respond to your inputs.</p></div></div>
+          <div class="card">
+            <div class="legend"><span><i class="sw" style="background:var(--c-bg)"></i>Regional background</span><span><i class="sw" style="background:var(--c-veh)"></i>Vehicles</span><span><i class="sw" style="background:var(--c-ind)"></i>Industry</span><span><i class="sw" style="background:var(--c-oth)"></i>Dust, biomass, households</span></div>
+            <div class="chart" id="ch-app"></div></div>
+        </section>
+
+        <section aria-labelledby="h-24">
+          <div class="sec-h"><div><h2 id="h-24">Illustrative 24-hour traffic sensitivity</h2><p>Scenario proxy only, not hourly CPCB AQI. Hourly shape comes from rush-hour traffic and the daily rise and fall of the mixing layer. The 24-hour mean matches the table above.</p></div>
+            <div class="toggle" id="hp" role="group" aria-label="Pollutant"></div></div>
+          <div class="card">
+            <div class="legend"><span><i class="sw" style="background:var(--base)"></i>Baseline</span><span><i class="sw" style="background:var(--prop)"></i>Proposed</span></div>
+            <div class="readout" id="hread">Hover or touch the chart to read a given hour.</div>
+            <div class="chart" id="ch-hr"></div></div>
+        </section>
+
+        <section aria-labelledby="h-rec">
+          <div class="sec-h"><div><h2 id="h-rec">Findings</h2><p>Written from the current scenario.</p></div></div>
+          <div class="card"><ul class="ins" id="ins"></ul></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-method" hidden>
+    <div class="doc gut">
+      <div>
+        <div class="eyebrow">Method and assumptions</div>
+        <h1 style="margin-top:8px">How the simulator works</h1>
+        <p style="color:var(--muted);margin-top:8px;max-width:70ch">A transparent scaling model: a fixed baseline city is calibrated once, and the proposed city is that baseline rescaled by activity, weather and greenery. Everything below is visible so it can be explained, questioned and extended in class.</p>
+      </div>
+
+      <div class="card"><h2>Objective</h2>
+        <p>Let a planner or student change the inputs of a proposed city (traffic, industry, energy, greenery, weather) and see the effect on six CPCB pollutants, the resulting AQI, carbon emissions and a composite sustainability score, against a fixed baseline.</p></div>
+
+      <div class="card"><h2>Calculation steps</h2>
+        <ol>
+          <li><b>Activity.</b> Vehicle, industry and population inputs are divided by the baseline values to get activity ratios. EV share removes exhaust emissions but not tyre, brake and road-dust particles. Industrial control efficiency and clean-energy share lower industrial output.</li>
+          <li><b>Source apportionment.</b> Each pollutant's baseline concentration is split into regional background, vehicles, industry and other local sources (dust, biomass, households). Each local share is multiplied by its activity ratio.</li>
+          <li><b>Meteorology.</b> A ventilation index (wind speed × mixing height) dilutes local contributions. Mixing height depends on temperature and season. Humidity raises particulate matter. Monsoon rain washes particles out. Temperature drives ozone.</li>
+          <li><b>Greenery.</b> Tree and vegetation cover removes a fraction of each pollutant by deposition, with diminishing returns as cover grows.</li>
+          <li><b>Concentration to sub-index.</b> Each concentration is converted with CPCB breakpoints. The AQI is the largest sub-index and its pollutant is the dominant one.</li>
+          <li><b>Carbon and score.</b> CO₂ is summed by sector, minus a green-cover sink. The sustainability score blends air quality, carbon per person, green cover, EV share and clean energy.</li>
+        </ol></div>
+
+      <div class="card"><h2>Equations</h2>
+<pre class="eq">C(p) = w · [ bg(p) + Σs L(s,p) · A(s) · f_vent · f_green · f_hum ]
+f_vent  = ( VI_ref / VI ) ^ k          VI = max(u, 0.5 m/s) × H
+H       = clamp(300 + 20·T, 300, 1200) m × season factor
+f_green = (1 − r(p)·G(g)) / (1 − r(p)·G(g0))      G(g) = 1 − exp(−g / 30)
+Sub-index  I = (I_hi − I_lo) / (BP_hi − BP_lo) · (C − BP_lo) + I_lo
+AQI = max over pollutants of I
+CO₂ = ICE vehicles × 2.3 kg × congestion + EVs × 1.15 kg × (1 − clean)
+      + industries × 14 t × (1 − 0.4·clean) + people × 1.0 kg × (1 − clean)
+      − green sink (877 t/day at 100% cover)</pre>
+        <p style="color:var(--muted);font-size:13px">w is the monsoon washout factor, L the baseline load, A the activity ratio, r(p) the removal fraction, u wind speed, T temperature, g green cover in percent.</p></div>
+
+      <div class="cols">
+        <div class="card"><h2>Baseline city (fixed)</h2><div class="tw" id="m-base"></div></div>
+        <div class="card"><h2>Baseline source apportionment</h2><div class="tw" id="m-load"></div></div>
+      </div>
+      <div class="card"><h2>CPCB breakpoints used</h2><div class="tw" id="m-bp"></div></div>
+
+      <div class="card"><h2>Assumptions and limits</h2>
+        <ul>
+          <li>Coefficients are illustrative, chosen to resemble a mid-size Indian city. They are not fitted to measurements, so results show direction and relative size, not forecasts.</li>
+          <li>The model is a single-box, daily-average scale. It has no street-level variation, no atmospheric chemistry transport and no day-to-day carry-over.</li>
+          <li>Ozone is simplified: it rises with temperature and with vehicle and industrial precursors, and it is damped by dilution and greenery.</li>
+          <li>The AQI is computed from modelled 24-hour and 8-hour means. The official CPCB AQI needs monitored data with completeness rules.</li>
+          <li>The 24-hour view redistributes the daily mean by hour. It is a traffic and mixing-layer proxy, not an hourly AQI.</li>
+          <li>Regional background is constant. In real cities, crop-residue burning, festivals and transported dust can dominate for days.</li>
+        </ul></div>
+
+      <div class="card"><h2>Suggested demo for the presentation</h2>
+        <ol>
+          <li>Pick <b>Same as baseline</b>. The result sits at the baseline AQI of 71, led by PM2.5.</li>
+          <li>Pick <b>Industrial expansion</b>. NO₂ takes over as the dominant pollutant and CO₂ rises sharply.</li>
+          <li>Pick <b>Car-centric sprawl</b> and compare its source split and carbon table with the baseline.</li>
+          <li>Pick <b>Winter stagnation</b> and untick the same-weather option. The city is unchanged, but low wind and a shallow mixing layer alone push the AQI into the Very Poor range.</li>
+          <li>Finish with <b>Green transit city</b> and <b>Car-light eco city</b>, and compare AQI, carbon and score with the baseline.</li>
+        </ol></div>
+
+      <div class="card"><h2>Sustainable Development Goals addressed</h2>
+        <div class="sdg">
+          <div><b>SDG 3</b>Good health and well-being: lower exposure to particulate matter and gases.</div>
+          <div><b>SDG 7</b>Affordable and clean energy: clean-energy share cuts power and industrial emissions.</div>
+          <div><b>SDG 11</b>Sustainable cities and communities: transport, industry and green-space planning.</div>
+          <div><b>SDG 13</b>Climate action: CO₂ per person and the effect of electrification.</div>
+        </div></div>
+    </div>
+  </section>
+</main>
+
+<footer class="gut"><div>Educational scenario model for the course Environmental Science and Sustainability. AQI categories follow the Indian CPCB National AQI scale. Results are illustrative estimates, not measurements or an official forecast.</div></footer>
+
+<script>
+/* ===== MODEL (pure logic, no DOM) ===== */
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+const POLL = [
+  { id: 'PM25', label: 'PM2.5', unit: 'µg/m³', avg: '24-hour', dec: 1 },
+  { id: 'PM10', label: 'PM10', unit: 'µg/m³', avg: '24-hour', dec: 1 },
+  { id: 'NO2', label: 'NO₂', unit: 'µg/m³', avg: '24-hour', dec: 1 },
+  { id: 'SO2', label: 'SO₂', unit: 'µg/m³', avg: '24-hour', dec: 1 },
+  { id: 'CO', label: 'CO', unit: 'mg/m³', avg: '8-hour', dec: 2 },
+  { id: 'O3', label: 'O₃', unit: 'µg/m³', avg: '8-hour', dec: 1 }
+];
+
+/* CPCB National AQI breakpoints: [concLow, concHigh, indexLow, indexHigh] */
+const BP = {
+  PM25: [[0, 30, 0, 50], [31, 60, 51, 100], [61, 90, 101, 200], [91, 120, 201, 300], [121, 250, 301, 400], [251, 500, 401, 500]],
+  PM10: [[0, 50, 0, 50], [51, 100, 51, 100], [101, 250, 101, 200], [251, 350, 201, 300], [351, 430, 301, 400], [431, 600, 401, 500]],
+  NO2: [[0, 40, 0, 50], [41, 80, 51, 100], [81, 180, 101, 200], [181, 280, 201, 300], [281, 400, 301, 400], [401, 600, 401, 500]],
+  SO2: [[0, 40, 0, 50], [41, 80, 51, 100], [81, 380, 101, 200], [381, 800, 201, 300], [801, 1600, 301, 400], [1601, 2400, 401, 500]],
+  CO: [[0, 1, 0, 50], [1.1, 2, 51, 100], [2.1, 10, 101, 200], [10.1, 17, 201, 300], [17.1, 34, 301, 400], [34.1, 50, 401, 500]],
+  O3: [[0, 50, 0, 50], [51, 100, 51, 100], [101, 168, 101, 200], [169, 208, 201, 300], [209, 748, 301, 400], [749, 1000, 401, 500]]
+};
+
+const CATS = [
+  { max: 50, name: 'Good', key: 'good', impact: 'Minimal impact on health.' },
+  { max: 100, name: 'Satisfactory', key: 'sat', impact: 'May cause minor breathing discomfort to sensitive people.' },
+  { max: 200, name: 'Moderate', key: 'mod', impact: 'May cause breathing discomfort to people with lung disease, asthma or heart conditions.' },
+  { max: 300, name: 'Poor', key: 'poor', impact: 'May cause breathing discomfort to most people on prolonged exposure.' },
+  { max: 400, name: 'Very Poor', key: 'vpoor', impact: 'May cause respiratory illness on prolonged exposure.' },
+  { max: 500, name: 'Severe', key: 'severe', impact: 'Affects healthy people and seriously affects people with existing disease.' }
+];
+const catOf = aqi => CATS.find(c => aqi <= c.max) || CATS[CATS.length - 1];
+
+function subIndex(pid, c) {
+  const bands = BP[pid];
+  let b = bands.find(x => c <= x[1]);
+  if (!b) b = bands[bands.length - 1];
+  const conc = Math.max(c, b[0]);
+  const v = b[2] + ((b[3] - b[2]) / (b[1] - b[0])) * (conc - b[0]);
+  return Math.round(clamp(v, 0, 500));
+}
+
+/* Fixed baseline city and reference weather (calibration state) */
+const BASE = { vehicles: 600000, ev: 3, industries: 250, control: 30, congestion: 'Medium', population: 3.0, renewable: 20, green: 12 };
+const REF_WX = { season: 'post', temp: 28, wind: 10, humidity: 60 };
+
+/* Baseline source apportionment (illustrative, representative of a mid-size Indian city) */
+const LOAD = {
+  PM25: { bg: 9, veh: 11, ind: 10, oth: 12.6 },
+  PM10: { bg: 18, veh: 12, ind: 14, oth: 25.7 },
+  NO2: { bg: 6, veh: 31, ind: 12, oth: 4.2 },
+  SO2: { bg: 3, veh: 1.8, ind: 26, oth: 4 },
+  CO: { bg: 0.2, veh: 0.8, ind: 0.1, oth: 0.15 },
+  O3: { bg: 30, veh: 11.5, ind: 4.9, oth: 5 }
+};
+
+const CONG = {
+  Low: { pm: 0.9, nox: 0.85, co: 0.7, co2: 0.92, amp: 0.7 },
+  Medium: { pm: 1, nox: 1, co: 1, co2: 1, amp: 1 },
+  High: { pm: 1.15, nox: 1.3, co: 1.6, co2: 1.18, amp: 1.2 },
+  Severe: { pm: 1.3, nox: 1.6, co: 2.3, co2: 1.4, amp: 1.4 }
+};
+const CONG_LEVELS = ['Low', 'Medium', 'High', 'Severe'];
+
+const SEAS = {
+  post: { label: 'Post-monsoon', H: 0.8, oth: {}, wash: {} },
+  winter: { label: 'Winter (stagnant)', H: 0.5, oth: { PM25: 1.3, PM10: 1.15, SO2: 1.1, CO: 1.2 }, wash: {} },
+  summer: { label: 'Summer', H: 1.15, oth: { PM10: 1.2 }, wash: {} },
+  monsoon: { label: 'Monsoon (rain washout)', H: 1.0, oth: { PM25: 0.8, PM10: 0.8 }, wash: { PM25: 0.65, PM10: 0.6, NO2: 0.9, SO2: 0.85, O3: 0.9 } }
+};
+
+const REMOVAL = { PM25: 0.30, PM10: 0.40, NO2: 0.20, SO2: 0.15, CO: 0.02, O3: 0.10 };
+const VENT_EXP = { PM25: 0.85, PM10: 0.85, NO2: 0.85, SO2: 0.85, CO: 0.85, O3: 0.3 };
+
+const greenEff = g => 1 - Math.exp(-g / 30);
+const met = wx => {
+  const u = Math.max(wx.wind / 3.6, 0.5);
+  const H = clamp(300 + 20 * wx.temp, 300, 1200) * SEAS[wx.season].H;
+  return { u, H, VI: u * H };
+};
+
+function activity(cfg, wx) {
+  const V = cfg.vehicles / BASE.vehicles;
+  const e = cfg.ev / 100, e0 = BASE.ev / 100;
+  const cg = CONG[cfg.congestion], c0 = CONG[BASE.congestion];
+  const exh = (1 - e) / (1 - e0);
+  const pmShare = (0.6 + 0.4 * (1 - e)) / (0.6 + 0.4 * (1 - e0));
+  const veh = {
+    PM25: V * pmShare * cg.pm / c0.pm,
+    PM10: V * pmShare * cg.pm / c0.pm,
+    NO2: V * exh * cg.nox / c0.nox,
+    SO2: V * exh,
+    CO: V * exh * cg.co / c0.co,
+    O3: V * exh * cg.nox / c0.nox
+  };
+  const ind = Math.max(0, (cfg.industries / BASE.industries) * ((1 - cfg.control / 100) / (1 - BASE.control / 100)) * (1 - 0.4 * (cfg.renewable - BASE.renewable) / 100));
+  const popR = Math.pow(cfg.population / BASE.population, 0.7);
+  return { veh, ind, popR };
+}
+
+function compute(cfg, wx) {
+  const m = met(wx), m0 = met(REF_WX);
+  const act = activity(cfg, wx);
+  const s = SEAS[wx.season];
+  const tf = clamp(1 + 0.03 * (wx.temp - 28), 0.5, 1.4);
+  const conc = {}, sub = {}, comps = {};
+  POLL.forEach(p => {
+    const id = p.id, L = LOAD[id];
+    const fvent = clamp(Math.pow(m0.VI / m.VI, VENT_EXP[id]), 0.25, 4);
+    const fgreen = (1 - REMOVAL[id] * greenEff(cfg.green)) / (1 - REMOVAL[id] * greenEff(BASE.green));
+    let fhum = 1;
+    if (id === 'PM25') fhum = clamp(1 + 0.006 * (wx.humidity - 60), 0.8, 1.3);
+    if (id === 'PM10') fhum = clamp(1 + 0.002 * (wx.humidity - 60), 0.8, 1.3);
+    const wash = s.wash[id] || 1;
+    const tmul = id === 'O3' ? tf : 1;
+    const loc = fvent * fgreen * fhum * tmul * wash;
+    const c = {
+      bg: L.bg * tmul * wash,
+      veh: L.veh * act.veh[id] * loc,
+      ind: L.ind * act.ind * loc,
+      oth: L.oth * act.popR * (s.oth[id] || 1) * loc
+    };
+    const total = c.bg + c.veh + c.ind + c.oth;
+    comps[id] = c;
+    conc[id] = total;
+    sub[id] = subIndex(id, total);
+  });
+  let dom = POLL[0].id, aqi = -1;
+  POLL.forEach(p => { if (sub[p.id] > aqi) { aqi = sub[p.id]; dom = p.id; } });
+
+  /* CO2 (tonnes/day) */
+  const e = cfg.ev / 100, r = cfg.renewable / 100, cg = CONG[cfg.congestion];
+  const vehCO2 = (cfg.vehicles * (1 - e) * 2.3 * cg.co2 + cfg.vehicles * e * 1.15 * (1 - r)) / 1000;
+  const indCO2 = cfg.industries * 14 * (1 - 0.4 * r);
+  const powCO2 = (cfg.population * 1e6 * 1.0 * (1 - r)) / 1000;
+  const sink = (cfg.green / 100) * 877;
+  const gross = vehCO2 + indCO2 + powCO2;
+  const net = Math.max(0, gross - sink);
+  const perCap = (net * 1000) / (cfg.population * 1e6);
+
+  /* Sustainability score 0-100 */
+  const sc = {
+    air: clamp(100 * (1 - aqi / 300), 0, 100),
+    carbon: clamp(100 * (1 - (perCap - 0.5) / 3.5), 0, 100),
+    green: clamp((cfg.green / 30) * 100, 0, 100),
+    mobility: clamp((cfg.ev / 50) * 100, 0, 100),
+    energy: clamp((cfg.renewable / 80) * 100, 0, 100)
+  };
+  const score = 0.35 * sc.air + 0.25 * sc.carbon + 0.15 * sc.green + 0.15 * sc.mobility + 0.10 * sc.energy;
+
+  return { conc, sub, comps, aqi, dom, cat: catOf(aqi), co2: { veh: vehCO2, ind: indCO2, pow: powCO2, sink, gross, net, perCap }, score, sc };
+}
+
+/* ---- 24-hour illustrative profiles ---- */
+const TRAF = [0.25, 0.2, 0.2, 0.2, 0.3, 0.6, 1.2, 1.9, 2.1, 1.5, 1.1, 1.05, 1.1, 1.05, 1.0, 1.1, 1.5, 2.0, 2.1, 1.6, 1.1, 0.8, 0.5, 0.35];
+const INDP = [0.85, 0.85, 0.85, 0.85, 0.85, 0.9, 1, 1.1, 1.15, 1.15, 1.15, 1.15, 1.15, 1.15, 1.15, 1.15, 1.1, 1.05, 1, 0.95, 0.9, 0.9, 0.85, 0.85];
+const PBL = [0.35, 0.32, 0.3, 0.3, 0.3, 0.32, 0.4, 0.55, 0.75, 0.9, 0.97, 1, 1, 1, 0.97, 0.9, 0.75, 0.55, 0.45, 0.4, 0.38, 0.37, 0.36, 0.35];
+const WND = [0.7, 0.7, 0.65, 0.65, 0.65, 0.7, 0.8, 0.95, 1.1, 1.2, 1.25, 1.3, 1.3, 1.3, 1.25, 1.15, 1.05, 0.95, 0.85, 0.8, 0.75, 0.75, 0.7, 0.7];
+
+function hourly(res, cfg, pid) {
+  const c = res.comps[pid];
+  const amp = CONG[cfg.congestion].amp;
+  const raw = [];
+  for (let h = 0; h < 24; h++) {
+    const t = Math.max(0.1, 1 + (TRAF[h] - 1) * amp);
+    raw.push((c.veh * t + c.ind * INDP[h] + c.oth) / (PBL[h] * WND[h]));
+  }
+  const mean = raw.reduce((a, b) => a + b, 0) / 24;
+  const localDaily = c.veh + c.ind + c.oth;
+  return raw.map(v => c.bg + (v / mean) * localDaily);
+}
+
+/* ---- What-if levers and sensitivity drivers ---- */
+const mod = (cfg, wx, f) => { const c = { ...cfg }, w = { ...wx }; f(c, w); return { cfg: c, wx: w }; };
+const stepCong = (c, d) => { c.congestion = CONG_LEVELS[clamp(CONG_LEVELS.indexOf(c.congestion) + d, 0, 3)]; };
+
+const DRIVERS = [
+  { label: 'Vehicles ±25%', f: d => (c => { c.vehicles = clamp(c.vehicles * (1 + 0.25 * d), 0, 1500000); }) },
+  { label: 'EV share ±20 pts', f: d => (c => { c.ev = clamp(c.ev + 20 * d, 0, 100); }) },
+  { label: 'Industries ±25%', f: d => (c => { c.industries = clamp(c.industries * (1 + 0.25 * d), 0, 600); }) },
+  { label: 'Industrial controls ±20 pts', f: d => (c => { c.control = clamp(c.control + 20 * d, 0, 95); }) },
+  { label: 'Population ±20%', f: d => (c => { c.population = clamp(c.population * (1 + 0.2 * d), 0.5, 10); }) },
+  { label: 'Clean energy ±20 pts', f: d => (c => { c.renewable = clamp(c.renewable + 20 * d, 0, 100); }) },
+  { label: 'Green cover ±10 pts', f: d => (c => { c.green = clamp(c.green + 10 * d, 0, 60); }) },
+  { label: 'Congestion ±1 level', f: d => (c => { stepCong(c, d); }) },
+  { label: 'Wind speed ±30%', w: d => (w => { w.wind = clamp(w.wind * (1 + 0.3 * d), 0, 40); }) },
+  { label: 'Temperature ±5 °C', w: d => (w => { w.temp = clamp(w.temp + 5 * d, 5, 45); }) },
+  { label: 'Humidity ±15 pts', w: d => (w => { w.humidity = clamp(w.humidity + 15 * d, 10, 100); }) }
+];
+
+function sensitivity(cfg, wx, metric) {
+  const val = (c, w) => { const r = compute(c, w); return metric === 'co2' ? r.co2.net : r.aqi; };
+  const v0 = val(cfg, wx);
+  return DRIVERS.map(d => {
+    const lo = mod(cfg, wx, (c, w) => { if (d.f) d.f(-1)(c); if (d.w) d.w(-1)(w); });
+    const hi = mod(cfg, wx, (c, w) => { if (d.f) d.f(1)(c); if (d.w) d.w(1)(w); });
+    return { label: d.label, lo: val(lo.cfg, lo.wx) - v0, hi: val(hi.cfg, hi.wx) - v0 };
+  }).sort((a, b) => Math.max(Math.abs(b.lo), Math.abs(b.hi)) - Math.max(Math.abs(a.lo), Math.abs(a.hi)));
+}
+
+const LEVERS = [
+  { label: 'Raise EV share by 20 points', ok: c => c.ev < 100, f: c => { c.ev = Math.min(100, c.ev + 20); } },
+  { label: 'Cut vehicles by 20% (transit, shared mobility)', ok: c => c.vehicles > 0, f: c => { c.vehicles *= 0.8; } },
+  { label: 'Raise industrial emission control by 20 points', ok: c => c.control < 95, f: c => { c.control = Math.min(95, c.control + 20); } },
+  { label: 'Add 5 points of green cover', ok: c => c.green < 60, f: c => { c.green = Math.min(60, c.green + 5); } },
+  { label: 'Raise clean energy share by 20 points', ok: c => c.renewable < 100, f: c => { c.renewable = Math.min(100, c.renewable + 20); } },
+  { label: 'Improve congestion by one level', ok: c => c.congestion !== 'Low', f: c => { stepCong(c, -1); } },
+  { label: 'Reduce industries by 20%', ok: c => c.industries > 0, f: c => { c.industries *= 0.8; } }
+];
+
+function levers(cfg, wx, cur) {
+  return LEVERS.filter(l => l.ok(cfg)).map(l => {
+    const c = { ...cfg }; l.f(c);
+    const r = compute(c, wx);
+    return { label: l.label, dAqi: r.aqi - cur.aqi, dCo2: r.co2.net - cur.co2.net, dScore: r.score - cur.score };
+  }).sort((a, b) => (a.dAqi - b.dAqi) || (a.dCo2 - b.dCo2));
+}
+
+const PRESETS = {
+  green: { name: 'Green transit city', cfg: { vehicles: 450000, ev: 40, industries: 200, control: 65, congestion: 'Medium', population: 3.0, renewable: 50, green: 25 }, wx: REF_WX },
+  baseline: { name: 'Same as baseline', cfg: { ...BASE }, wx: REF_WX },
+  industrial: { name: 'Industrial expansion', cfg: { vehicles: 650000, ev: 3, industries: 450, control: 25, congestion: 'High', population: 3.4, renewable: 15, green: 10 }, wx: REF_WX },
+  sprawl: { name: 'Car-centric sprawl', cfg: { vehicles: 1000000, ev: 2, industries: 300, control: 30, congestion: 'Severe', population: 3.8, renewable: 15, green: 8 }, wx: REF_WX },
+  winter: { name: 'Winter stagnation', cfg: { ...BASE }, wx: { season: 'winter', temp: 12, wind: 3, humidity: 70 } },
+  ideal: { name: 'Car-light eco city', cfg: { vehicles: 150000, ev: 90, industries: 120, control: 90, congestion: 'Low', population: 3.0, renewable: 90, green: 40 }, wx: REF_WX }
+};
+/* ===== END MODEL ===== */
+if (typeof module !== 'undefined') module.exports = { compute, BASE, REF_WX, PRESETS, POLL, hourly, sensitivity, levers, subIndex, catOf };
+
+
+/* ===== APP ===== */
+const $ = s => document.querySelector(s);
+const fmt = (v, d = 0) => Number(v).toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
+const sgn = (v, d = 0) => (v > 0 ? '+' : v < 0 ? '−' : '') + fmt(Math.abs(v), d);
+const nice = v => { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))), f = v / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; };
+const labelOf = id => POLL.find(p => p.id === id).label;
+
+const state = { cfg: { ...PRESETS.green.cfg }, wx: { ...PRESETS.green.wx }, same: true, preset: 'green', metric: 'aqi', hp: 'PM25' };
+let cache = null, raf = 0;
+
+const SPECS = [
+  { sec: 'Human activities', rows: [
+    { t: 'range', s: 'cfg', k: 'vehicles', l: 'Number of vehicles', min: 0, max: 1500000, step: 10000, f: v => fmt(v), base: BASE.vehicles },
+    { t: 'range', s: 'cfg', k: 'ev', l: 'Electric vehicle share', min: 0, max: 100, step: 1, f: v => v + '%', base: BASE.ev },
+    { t: 'range', s: 'cfg', k: 'industries', l: 'Number of industries', min: 0, max: 600, step: 10, f: v => fmt(v), base: BASE.industries },
+    { t: 'range', s: 'cfg', k: 'control', l: 'Industrial emission control', min: 0, max: 95, step: 5, f: v => v + '%', base: BASE.control },
+    { t: 'seg', k: 'congestion', l: 'Traffic congestion', opts: CONG_LEVELS },
+    { t: 'range', s: 'cfg', k: 'population', l: 'Population (million)', min: 0.5, max: 10, step: 0.1, f: v => Number(v).toFixed(1) + ' M', base: BASE.population }
+  ] },
+  { sec: 'Energy and greenery', rows: [
+    { t: 'range', s: 'cfg', k: 'renewable', l: 'Clean energy share', min: 0, max: 100, step: 5, f: v => v + '%', base: BASE.renewable },
+    { t: 'range', s: 'cfg', k: 'green', l: 'Green coverage', min: 0, max: 60, step: 1, f: v => v + '%', base: BASE.green }
+  ] },
+  { sec: 'Weather', rows: [
+    { t: 'sel', k: 'season', l: 'Season' },
+    { t: 'range', s: 'wx', k: 'temp', l: 'Temperature (°C)', min: 5, max: 45, step: 1, f: v => v + ' °C', base: REF_WX.temp },
+    { t: 'range', s: 'wx', k: 'wind', l: 'Wind speed (km/h)', min: 0, max: 40, step: 1, f: v => v + ' km/h', base: REF_WX.wind },
+    { t: 'range', s: 'wx', k: 'humidity', l: 'Humidity (%)', min: 10, max: 100, step: 5, f: v => v + '%', base: REF_WX.humidity }
+  ] }
+];
+const SPEC = {}; SPECS.forEach(g => g.rows.forEach(r => { SPEC[r.k] = r; }));
+
+function ctl(r) {
+  const id = 'in-' + r.k;
+  if (r.t === 'range') {
+    return '<div class="ctl"><div class="ctl-h"><label for="' + id + '">' + r.l + '</label><output id="out-' + r.k + '" for="' + id + '"></output></div>' +
+      '<input type="range" id="' + id + '" data-k="' + r.k + '" data-s="' + r.s + '" min="' + r.min + '" max="' + r.max + '" step="' + r.step + '">' +
+      '<div class="ctl-f"><span>' + r.f(r.min) + '</span><span>Baseline ' + r.f(r.base) + '</span><span>' + r.f(r.max) + '</span></div></div>';
+  }
+  if (r.t === 'seg') {
+    return '<div class="ctl"><div class="ctl-h"><span id="lbl-' + r.k + '">' + r.l + '</span></div><div class="seg" role="group" aria-labelledby="lbl-' + r.k + '">' +
+      r.opts.map(o => '<button type="button" data-seg="' + r.k + '" data-v="' + o + '" aria-pressed="false">' + o + '</button>').join('') + '</div></div>';
+  }
+  return '<div class="ctl"><div class="ctl-h"><label for="in-season">' + r.l + '</label></div><select class="sel" id="in-season">' +
+    Object.entries(SEAS).map(([k, v]) => '<option value="' + k + '">' + v.label + '</option>').join('') + '</select></div>';
+}
+
+function buildSide() {
+  let h = '<div class="side-h"><h2>Proposed city inputs</h2><button id="reset" class="btn-ghost" type="button">Reset</button></div>';
+  h += '<div class="presets" role="group" aria-label="Scenario presets">' + Object.entries(PRESETS).map(([k, p]) => '<button type="button" class="chip" data-preset="' + k + '" aria-pressed="false">' + p.name + '</button>').join('') + '</div>';
+  SPECS.forEach(g => { h += '<fieldset class="grp"><legend>' + g.sec + '</legend>' + g.rows.map(ctl).join('') + '</fieldset>'; });
+  h += '<label class="check"><input type="checkbox" id="same" checked><span>Apply the same weather to the baseline, so only the city design differs</span></label>';
+  h += '<p class="fine">Baseline city: 6,00,000 vehicles, 250 industries, 12% green cover, 3.0 M people, medium congestion, post-monsoon weather at 28 °C.</p>';
+  $('#side').innerHTML = h;
+}
+
+function syncSide() {
+  document.querySelectorAll('#side input[type="range"]').forEach(el => {
+    const r = SPEC[el.dataset.k]; const v = state[el.dataset.s][el.dataset.k];
+    el.value = v; $('#out-' + el.dataset.k).textContent = r.f(+v);
+  });
+  document.querySelectorAll('#side [data-seg]').forEach(b => b.setAttribute('aria-pressed', String(state.cfg[b.dataset.seg] === b.dataset.v)));
+  document.querySelectorAll('#side [data-preset]').forEach(b => b.setAttribute('aria-pressed', String(state.preset === b.dataset.preset)));
+  $('#in-season').value = state.wx.season;
+  $('#same').checked = state.same;
+}
+
+function applyPreset(k) {
+  const p = PRESETS[k]; state.cfg = { ...p.cfg }; state.wx = { ...p.wx }; state.preset = k; syncSide(); schedule();
+}
+function schedule() { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); }
+
+/* ---------- results ---------- */
+const catColor = c => 'var(--' + c.key + ')';
+function deltaChip(d, dec, unit, higherIsGood) {
+  const good = higherIsGood ? d > 0 : d < 0;
+  const cls = Math.abs(d) < (dec ? 0.05 : 0.5) ? 'flat' : good ? 'good' : 'bad';
+  const arrow = cls === 'flat' ? '→' : d < 0 ? '↓' : '↑';
+  return '<span class="delta ' + cls + '">' + arrow + ' ' + fmt(Math.abs(d), dec) + unit + ' vs baseline</span>';
+}
+
+function renderKpis(B, P) {
+  const dPct = B.co2.net ? ((P.co2.net - B.co2.net) / B.co2.net) * 100 : 0;
+  $('#kpis').innerHTML =
+    '<div class="kpi"><div class="l">Estimated AQI</div><div class="v">' + P.aqi + '</div><div class="s">' + deltaChip(P.aqi - B.aqi, 0, '', false) + '</div></div>' +
+    '<div class="kpi"><div class="l">AQI category</div><div class="v cat"><span class="pill"><i class="dot" style="background:' + catColor(P.cat) + '"></i>' + P.cat.name + '</span></div><div class="s">Baseline: ' + B.cat.name + '</div></div>' +
+    '<div class="kpi"><div class="l">Dominant pollutant</div><div class="v">' + labelOf(P.dom) + '</div><div class="s">Sub-index ' + P.sub[P.dom] + ' (baseline ' + labelOf(B.dom) + ' ' + B.sub[B.dom] + ')</div></div>' +
+    '<div class="kpi"><div class="l">Net CO₂ (tonnes/day)</div><div class="v">' + fmt(P.co2.net) + '</div><div class="s">' + deltaChip(P.co2.net - B.co2.net, 0, ' t', false) + '</div></div>' +
+    '<div class="kpi"><div class="l">Sustainability score</div><div class="v">' + Math.round(P.score) + '<small> / 100</small></div><div class="s">' + deltaChip(P.score - B.score, 0, '', true) + '</div></div>';
+
+  $('#live').innerHTML = '<small>Proposed AQI</small><span>' + P.aqi + '</span><span class="pill"><i class="dot" style="background:' + catColor(P.cat) + '"></i>' + P.cat.name + '</span>';
+  const nm = state.preset ? PRESETS[state.preset].name : 'Custom scenario';
+  $('#scen-name').textContent = 'Scenario: ' + nm + (state.same ? ' · baseline uses the same weather' : ' · baseline uses its fixed reference weather');
+}
+
+function posOf(aqi) {
+  let i = CATS.findIndex(c => aqi <= c.max); if (i < 0) i = CATS.length - 1;
+  const lo = i ? CATS[i - 1].max : 0;
+  return ((i + clamp((aqi - lo) / (CATS[i].max - lo), 0, 1)) / CATS.length) * 100;
+}
+const SEG_INK = ['#10170f', '#10170f', '#10170f', '#26140a', '#ffffff', '#ffffff'];
+function renderBand(B, P) {
+  const lo = i => (i ? CATS[i - 1].max + 1 : 0);
+  $('#band').innerHTML = CATS.map((c, i) => '<i style="background:' + catColor(c) + ';color:' + SEG_INK[i] + '"><b>' + c.name + '</b><span>' + lo(i) + '–' + c.max + '</span></i>').join('');
+  const mk = (aqi, cls, label) => { const p = posOf(aqi), lp = clamp(p, 11, 89); return '<span class="mk-a ' + cls + '" style="left:' + p + '%"></span><span class="mk-l ' + cls + '" style="left:' + lp + '%">' + label + ' ' + aqi + '</span>'; };
+  $('#mup').innerHTML = mk(B.aqi, 'base', 'Baseline');
+  $('#mdn').innerHTML = mk(P.aqi, 'prop', 'Proposed');
+  $('#scale').innerHTML = [0, 50, 100, 200, 300, 400, 500].map((v, i) => '<span style="left:' + (i / 6) * 100 + '%">' + v + '</span>').join('');
+  $('#advice').innerHTML = '<i class="dot" style="background:' + catColor(P.cat) + '"></i><div><b>' + P.cat.name + ' (' + P.aqi + ').</b> ' + P.cat.impact + ' Sensitive groups include children, older adults and people with heart or lung disease.</div>';
+}
+
+function renderTable(B, P) {
+  let h = '<table><thead><tr><th>Pollutant</th><th>Averaging period</th><th>Unit</th><th class="n">Baseline concentration</th><th class="n">Proposed concentration</th><th class="n">Change</th><th class="n">Baseline sub-index</th><th class="n">Proposed sub-index</th></tr></thead><tbody>';
+  POLL.forEach(p => {
+    const b = B.conc[p.id], q = P.conc[p.id], ch = b ? ((q - b) / b) * 100 : 0;
+    const cls = Math.abs(ch) < 0.5 ? 'zero' : ch < 0 ? 'neg' : 'pos';
+    h += '<tr><td><b>' + p.label + '</b>' + (p.id === P.dom ? ' <span class="note" style="margin:0">dominant</span>' : '') + '</td><td>' + p.avg + '</td><td>' + p.unit + '</td><td class="n">' + fmt(b, p.dec) + '</td><td class="n">' + fmt(q, p.dec) + '</td><td class="n ' + cls + '">' + sgn(ch, 0) + '%</td><td class="n">' + B.sub[p.id] + '</td><td class="n"><i class="dot" style="background:' + catColor(catOf(P.sub[p.id])) + '"></i>' + P.sub[p.id] + '</td></tr>';
+  });
+  $('#tbl').innerHTML = h + '</tbody></table>';
+}
+
+/* ---------- charts ---------- */
+function chartSub(B, P) {
+  const el = $('#ch-sub'), w = el.clientWidth; if (!w) return;
+  const h = 290, m = { l: 36, r: 8, t: 14, b: 32 }, iw = w - m.l - m.r, ih = h - m.t - m.b;
+  const vals = POLL.flatMap(p => [B.sub[p.id], P.sub[p.id]]);
+  const ymax = Math.max(100, Math.ceil(Math.max(...vals) * 1.12 / 50) * 50);
+  const y = v => m.t + ih * (1 - v / ymax);
+  let s = '', lo = 0;
+  CATS.forEach(c => { if (lo >= ymax) return; const hi = Math.min(c.max, ymax); s += '<rect x="' + m.l + '" y="' + y(hi) + '" width="' + iw + '" height="' + (y(lo) - y(hi)) + '" fill="' + catColor(c) + '" opacity=".14"/>'; lo = c.max; });
+  const step = ymax <= 150 ? 25 : ymax <= 300 ? 50 : 100;
+  for (let v = 0; v <= ymax; v += step) s += '<line class="gl" x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="ax" x="' + (m.l - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v + '</text>';
+  const gw = iw / POLL.length, bw = Math.min(26, gw * 0.34);
+  POLL.forEach((p, i) => {
+    const cx = m.l + gw * i + gw / 2;
+    [[B, 'var(--base)', -bw - 1, 'Baseline'], [P, 'var(--prop)', 1, 'Proposed']].forEach(([R, col, dx, nm]) => {
+      const v = R.sub[p.id];
+      s += '<rect x="' + (cx + dx) + '" y="' + y(v) + '" width="' + bw + '" height="' + Math.max(0, y(0) - y(v)) + '" rx="2" fill="' + col + '"><title>' + p.label + ' ' + nm + ': sub-index ' + v + ' (' + fmt(R.conc[p.id], p.dec) + ' ' + p.unit + ')</title></rect>';
+      if (bw >= 14) s += '<text class="vl" x="' + (cx + dx + bw / 2) + '" y="' + (y(v) - 4) + '" text-anchor="middle" style="font-size:10px">' + v + '</text>';
+    });
+    s += '<text class="ax" x="' + cx + '" y="' + (h - 10) + '" text-anchor="middle">' + p.label + '</text>';
+  });
+  el.innerHTML = '<svg width="' + w + '" height="' + h + '" role="img" aria-label="Grouped bars of AQI sub-indices, baseline versus proposed">' + s + '</svg>';
+}
+
+function chartCO2(B, P) {
+  const el = $('#ch-co2'), w = el.clientWidth; if (!w) return;
+  const h = 290, m = { l: 48, r: 8, t: 22, b: 58 }, iw = w - m.l - m.r, ih = h - m.t - m.b;
+  const ymax = nice(Math.max(B.co2.gross, P.co2.gross) * 1.1);
+  const y = v => m.t + ih * (1 - v / ymax);
+  let s = '';
+  for (let i = 0; i <= 4; i++) { const v = (ymax / 4) * i; s += '<line class="gl" x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="ax" x="' + (m.l - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + fmt(v) + '</text>'; }
+  const bw = Math.min(96, iw * 0.3);
+  [[B, 'Baseline', 0.25], [P, 'Proposed', 0.75]].forEach(([R, nm, f]) => {
+    const cx = m.l + iw * f; let acc = 0;
+    [['pow', 'var(--c-pow)', 'Buildings & power'], ['ind', 'var(--c-ind)', 'Industry'], ['veh', 'var(--c-veh)', 'Vehicles']].forEach(([k, col, ln]) => {
+      const v = R.co2[k], y1 = y(acc + v), y0 = y(acc);
+      s += '<rect x="' + (cx - bw / 2) + '" y="' + y1 + '" width="' + bw + '" height="' + Math.max(0, y0 - y1) + '" fill="' + col + '"><title>' + nm + ' · ' + ln + ': ' + fmt(v) + ' t/day</title></rect>';
+      if (y0 - y1 > 16) s += '<text class="vl-in" x="' + cx + '" y="' + ((y0 + y1) / 2 + 4) + '" text-anchor="middle">' + fmt(v) + '</text>';
+      acc += v;
+    });
+    s += '<text class="vl" x="' + cx + '" y="' + (y(acc) - 6) + '" text-anchor="middle">' + fmt(R.co2.gross) + '</text>';
+    s += '<text class="vl" x="' + cx + '" y="' + (h - 34) + '" text-anchor="middle">' + nm + '</text>';
+    s += '<text class="ax" x="' + cx + '" y="' + (h - 18) + '" text-anchor="middle">Green sink −' + fmt(R.co2.sink) + '</text>';
+    s += '<text class="ax" x="' + cx + '" y="' + (h - 4) + '" text-anchor="middle">Net ' + fmt(R.co2.net) + ' t/day</text>';
+  });
+  el.innerHTML = '<svg width="' + w + '" height="' + h + '" role="img" aria-label="Stacked bars of CO2 by sector, baseline versus proposed">' + s + '</svg>';
+}
+
+function chartApp(P) {
+  const el = $('#ch-app'), w = el.clientWidth; if (!w) return;
+  const rh = 38, m = { l: 52, r: 8, t: 4 }, h = m.t + rh * POLL.length + 4, iw = w - m.l - m.r;
+  let s = '';
+  POLL.forEach((p, i) => {
+    const c = P.comps[p.id], tot = c.bg + c.veh + c.ind + c.oth, yy = m.t + i * rh; let x = m.l;
+    s += '<text class="vl" x="' + (m.l - 8) + '" y="' + (yy + 21) + '" text-anchor="end">' + p.label + '</text>';
+    [['bg', 'var(--c-bg)', 'Regional background'], ['veh', 'var(--c-veh)', 'Vehicles'], ['ind', 'var(--c-ind)', 'Industry'], ['oth', 'var(--c-oth)', 'Dust, biomass, households']].forEach(([k, col, nm]) => {
+      const f = tot ? c[k] / tot : 0, sw = iw * f;
+      s += '<rect x="' + x + '" y="' + (yy + 6) + '" width="' + sw + '" height="24" fill="' + col + '"><title>' + p.label + ' · ' + nm + ': ' + fmt(f * 100) + '% (' + fmt(c[k], p.dec === 2 ? 2 : 1) + ' ' + p.unit + ')</title></rect>';
+      if (sw > 34) s += '<text class="vl-in" x="' + (x + sw / 2) + '" y="' + (yy + 22) + '" text-anchor="middle">' + fmt(f * 100) + '%</text>';
+      x += sw;
+    });
+  });
+  el.innerHTML = '<svg width="' + w + '" height="' + h + '" role="img" aria-label="Share of each pollutant by source in the proposed city">' + s + '</svg>';
+}
+
+
+function chartHour(B, P, cfg, bcfg) {
+  const el = $('#ch-hr'), w = el.clientWidth; if (!w) return;
+  const pid = state.hp, p = POLL.find(x => x.id === pid);
+  const hb = hourly(B, bcfg, pid), hp = hourly(P, cfg, pid);
+  const h = 290, m = { l: 44, r: 12, t: 16, b: 30 }, iw = w - m.l - m.r, ih = h - m.t - m.b;
+  const ymax = nice(Math.max(...hb, ...hp) * 1.1);
+  const x = i => m.l + (iw * i) / 23, y = v => m.t + ih * (1 - v / ymax);
+  let s = '';
+  [[7, 10], [17, 20]].forEach(([a, b]) => { s += '<rect x="' + x(a) + '" y="' + m.t + '" width="' + (x(b) - x(a)) + '" height="' + ih + '" fill="var(--surface-2)"/><text class="ax" x="' + ((x(a) + x(b)) / 2) + '" y="' + (m.t + 12) + '" text-anchor="middle" style="font-size:10px">Rush hour</text>'; });
+  for (let i = 0; i <= 4; i++) { const v = (ymax / 4) * i; s += '<line class="gl" x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="ax" x="' + (m.l - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + fmt(v, ymax < 5 ? 1 : 0) + '</text>'; }
+  BP[pid].slice(0, 3).forEach((b, i) => { if (b[1] < ymax) s += '<line x1="' + m.l + '" x2="' + (w - m.r) + '" y1="' + y(b[1]) + '" y2="' + y(b[1]) + '" stroke="' + catColor(CATS[i]) + '" stroke-width="1.5" stroke-dasharray="5 4"/><text class="ax" x="' + (w - m.r - 2) + '" y="' + (y(b[1]) - 4) + '" text-anchor="end" style="font-size:10px">' + CATS[i].name + ' limit ' + fmt(b[1], pid === 'CO' ? 1 : 0) + '</text>'; });
+  [3, 6, 9, 12, 15, 18, 21].forEach(i => { s += '<text class="ax" x="' + x(i) + '" y="' + (h - 8) + '" text-anchor="middle">' + String(i).padStart(2, '0') + ':00</text>'; });
+  const path = a => a.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join('');
+  s += '<path d="' + path(hb) + '" fill="none" stroke="var(--base)" stroke-width="2" stroke-dasharray="6 4"/><path d="' + path(hp) + '" fill="none" stroke="var(--prop)" stroke-width="2.5"/>';
+  s += '<g id="hv" visibility="hidden"><line id="hv-l" y1="' + m.t + '" y2="' + (m.t + ih) + '" stroke="var(--ink)" stroke-width="1" opacity=".5"/><circle id="hv-b" r="4" fill="var(--base)"/><circle id="hv-p" r="4" fill="var(--prop)"/></g>';
+  s += '<rect id="hv-r" x="' + m.l + '" y="' + m.t + '" width="' + iw + '" height="' + ih + '" fill="transparent" style="touch-action:pan-y"/>';
+  el.innerHTML = '<svg width="' + w + '" height="' + h + '" role="img" aria-label="Hourly proxy concentration of ' + p.label + ', baseline versus proposed">' + s + '</svg>';
+  const readout = $('#hread'), g = $('#hv'), rect = $('#hv-r');
+  const move = ev => {
+    const bb = rect.getBoundingClientRect(), i = clamp(Math.round(((ev.clientX - bb.left) / bb.width) * 23), 0, 23);
+    g.setAttribute('visibility', 'visible');
+    $('#hv-l').setAttribute('x1', x(i)); $('#hv-l').setAttribute('x2', x(i));
+    $('#hv-b').setAttribute('cx', x(i)); $('#hv-b').setAttribute('cy', y(hb[i]));
+    $('#hv-p').setAttribute('cx', x(i)); $('#hv-p').setAttribute('cy', y(hp[i]));
+    readout.innerHTML = '<b>' + String(i).padStart(2, '0') + ':00</b> · ' + p.label + ' · baseline <b>' + fmt(hb[i], p.dec) + '</b> · proposed <b>' + fmt(hp[i], p.dec) + '</b> ' + p.unit;
+  };
+  rect.addEventListener('pointermove', move); rect.addEventListener('pointerdown', move);
+  rect.addEventListener('pointerleave', () => { g.setAttribute('visibility', 'hidden'); });
+}
+
+/* ---------- explainer, carbon table, findings ---------- */
+function cfgLine(c) { return fmt(c.vehicles) + ' vehicles (' + c.ev + '% electric) · ' + c.industries + ' industries (' + c.control + '% emission control) · ' + c.congestion + ' congestion · ' + c.population.toFixed(1) + ' M people · ' + c.renewable + '% clean energy · ' + c.green + '% green cover'; }
+function renderWho(B, P, wx, bwx) {
+  const wl = x => SEAS[x.season].label + ', ' + x.temp + ' °C, wind ' + x.wind + ' km/h, humidity ' + x.humidity + '%';
+  const card = (cls, title, text, cfg, w, R) => '<div class="card who"><div class="who-h"><i class="sw lg ' + cls + '"></i><h3>' + title + '</h3></div><p>' + text + '</p><p class="cfg">' + cfg + '</p><p class="cfg">Weather: ' + wl(w) + '</p><div class="who-k"><span>AQI <b>' + R.aqi + '</b> (' + R.cat.name + ')</span><span>Net CO₂ <b>' + fmt(R.co2.net) + ' t/day</b></span><span>Score <b>' + Math.round(R.score) + '/100</b></span></div></div>';
+  $('#who').innerHTML =
+    card('base', 'Baseline city (fixed)', 'The reference city: a typical mid-size Indian city as it is today. It does not change when you move the sliders, so every difference you see comes from the proposed city.', cfgLine(BASE), bwx, B) +
+    card('prop', 'Proposed city (your inputs)', 'The city you design with the controls. Every chart and table compares it against the baseline.', cfgLine(state.cfg), wx, P);
+}
+
+function renderCarbon(B, P) {
+  const rows = [['Vehicles', 'veh'], ['Industry', 'ind'], ['Buildings and power', 'pow'], ['Gross emissions', 'gross', 0, 1], ['Green-cover sink', 'sink', 1], ['Net emissions', 'net', 0, 1]];
+  const chg = (b, p, higherGood) => { const ch = b ? ((p - b) / b) * 100 : 0; const flat = Math.abs(ch) < 0.5; const cls = flat ? 'zero' : ((higherGood ? p > b : p < b) ? 'neg' : 'pos'); return '<td class="n ' + cls + '">' + (flat ? '0%' : sgn(ch, 0) + '%') + '</td>'; };
+  let h = '<table><thead><tr><th>Source</th><th class="n">Baseline (t CO₂/day)</th><th class="n">Proposed (t CO₂/day)</th><th class="n">Change</th></tr></thead><tbody>';
+  rows.forEach(r => {
+    const b = B.co2[r[1]], p = P.co2[r[1]], neg = r[2], bold = r[3], sg = neg ? '−' : '';
+    const w = t => bold ? '<b>' + t + '</b>' : t;
+    h += '<tr><td>' + w(r[0]) + '</td><td class="n">' + w(sg + fmt(b)) + '</td><td class="n">' + w(sg + fmt(p)) + '</td>' + chg(b, p, !!neg) + '</tr>';
+  });
+  h += '<tr><td>Net per person (kg/day)</td><td class="n">' + fmt(B.co2.perCap, 2) + '</td><td class="n">' + fmt(P.co2.perCap, 2) + '</td>' + chg(B.co2.perCap, P.co2.perCap, false) + '</tr>';
+  h += '<tr><td>Net per year (thousand tonnes)</td><td class="n">' + fmt((B.co2.net * 365) / 1000, 1) + '</td><td class="n">' + fmt((P.co2.net * 365) / 1000, 1) + '</td>' + chg(B.co2.net, P.co2.net, false) + '</tr>';
+  $('#co2tbl').innerHTML = h + '</tbody></table>';
+}
+
+function renderFindings(B, P) {
+  const c = P.comps[P.dom], tot = c.bg + c.veh + c.ind + c.oth;
+  const names = { bg: 'regional background', veh: 'vehicles', ind: 'industry', oth: 'dust, biomass and households' };
+  const top = Object.keys(names).sort((a, b) => c[b] - c[a])[0];
+  const dPct = B.co2.net ? ((P.co2.net - B.co2.net) / B.co2.net) * 100 : 0, dA = P.aqi - B.aqi, wx = state.wx;
+  const items = [];
+  items.push('The proposed city has an AQI of <b>' + P.aqi + ' (' + P.cat.name + ')</b>, ' + (dA === 0 ? 'the same as' : fmt(Math.abs(dA)) + ' points ' + (dA < 0 ? 'lower than' : 'higher than')) + ' the baseline AQI of ' + B.aqi + '.');
+  items.push('<b>' + labelOf(P.dom) + '</b> sets the proposed AQI. About ' + fmt((c[top] / tot) * 100) + '% of its modelled level comes from ' + names[top] + '.' + (top === 'bg' ? ' City inputs cannot change that part.' : ''));
+  items.push('Net CO₂ is <b>' + fmt(P.co2.net) + ' t/day</b>, ' + (Math.abs(dPct) < 0.5 ? 'about the same as' : fmt(Math.abs(dPct)) + '% ' + (dPct < 0 ? 'below' : 'above')) + ' the baseline, or <b>' + fmt(P.co2.perCap, 2) + ' kg per person per day</b>.');
+  if (wx.season === 'winter' || wx.wind < 5) items.push('Weather is limiting dilution (' + (wx.season === 'winter' ? 'winter mixing layer' : 'very low wind') + '). In this model, weather can outweigh city design, so compare the same city in a calmer season.');
+  else if (P.aqi > 100) items.push('The AQI is above Satisfactory. Act on the largest local source of ' + labelOf(P.dom) + ' first.');
+  else items.push('The scenario stays at or below Satisfactory in these conditions. Try the Winter stagnation preset to test how resilient it is.');
+  $('#ins').innerHTML = items.map(t => '<li>' + t + '</li>').join('');
+}
+
+/* ---------- main render ---------- */
+function render() {
+  const cfg = state.cfg, wx = state.wx, bwx = state.same ? wx : REF_WX;
+  const B = compute(BASE, bwx), P = compute(cfg, wx);
+  cache = { B, P, cfg, wx, bwx };
+  renderKpis(B, P); renderWho(B, P, wx, bwx); renderBand(B, P); renderCarbon(B, P); renderTable(B, P); renderFindings(B, P);
+  drawCharts();
+  document.querySelectorAll('[data-hp]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.hp === state.hp)));
+}
+function drawCharts() {
+  if (!cache || $('#view-simulator').hidden) return;
+  const { B, P, cfg } = cache;
+  chartSub(B, P); chartCO2(B, P); chartApp(P); chartHour(B, P, cfg, BASE);
+}
+
+/* ---------- copy summary ---------- */
+function summaryText() {
+  const { B, P, cfg, wx } = cache;
+  const nm = state.preset ? PRESETS[state.preset].name : 'Custom scenario';
+  return ['Smart City AQI Simulator, scenario summary', 'Scenario: ' + nm,
+    'Inputs: ' + fmt(cfg.vehicles) + ' vehicles (' + cfg.ev + '% EV), ' + cfg.industries + ' industries (' + cfg.control + '% emission control), ' + cfg.congestion + ' congestion, ' + cfg.population.toFixed(1) + ' M people, ' + cfg.renewable + '% clean energy, ' + cfg.green + '% green cover',
+    'Weather: ' + SEAS[wx.season].label + ', ' + wx.temp + ' °C, wind ' + wx.wind + ' km/h, humidity ' + wx.humidity + '%',
+    'Estimated AQI: ' + P.aqi + ' (' + P.cat.name + '), dominant pollutant ' + labelOf(P.dom) + '. Baseline: ' + B.aqi + ' (' + B.cat.name + ').',
+    'Net CO₂: ' + fmt(P.co2.net) + ' t/day (baseline ' + fmt(B.co2.net) + '). Sustainability score: ' + Math.round(P.score) + '/100 (baseline ' + Math.round(B.score) + ').',
+    'Illustrative model with CPCB-style breakpoints. Not an official AQI forecast.'].join('\n');
+}
+
+/* ---------- method tables ---------- */
+function buildMethod() {
+  $('#m-base').innerHTML = '<table><tbody>' + [
+    ['Vehicles', fmt(BASE.vehicles)], ['EV share', BASE.ev + '%'], ['Industries', BASE.industries], ['Industrial emission control', BASE.control + '%'], ['Traffic congestion', BASE.congestion], ['Population', BASE.population.toFixed(1) + ' million'], ['Clean energy share', BASE.renewable + '%'], ['Green coverage', BASE.green + '%'], ['Reference weather', 'Post-monsoon, ' + REF_WX.temp + ' °C, ' + REF_WX.wind + ' km/h wind, ' + REF_WX.humidity + '% humidity'], ['City area (for CO₂ sink)', '400 km²']
+  ].map(r => '<tr><td>' + r[0] + '</td><td class="n"><b>' + r[1] + '</b></td></tr>').join('') + '</tbody></table>';
+  $('#m-load').innerHTML = '<table><thead><tr><th>Pollutant</th><th class="n">Background</th><th class="n">Vehicles</th><th class="n">Industry</th><th class="n">Other</th><th class="n">Total</th></tr></thead><tbody>' +
+    POLL.map(p => { const l = LOAD[p.id], t = l.bg + l.veh + l.ind + l.oth, d = p.dec === 2 ? 2 : 1; return '<tr><td><b>' + p.label + '</b> <span class="note" style="margin:0">' + p.unit + '</span></td><td class="n">' + fmt(l.bg, d) + '</td><td class="n">' + fmt(l.veh, d) + '</td><td class="n">' + fmt(l.ind, d) + '</td><td class="n">' + fmt(l.oth, d) + '</td><td class="n"><b>' + fmt(t, d) + '</b></td></tr>'; }).join('') + '</tbody></table>';
+  $('#m-bp').innerHTML = '<table><thead><tr><th>Category</th><th class="n">AQI</th>' + POLL.map(p => '<th class="n">' + p.label + '</th>').join('') + '</tr></thead><tbody>' +
+    CATS.map((c, i) => '<tr><td><i class="dot" style="background:' + catColor(c) + '"></i><b>' + c.name + '</b></td><td class="n">' + (i ? CATS[i - 1].max + 1 : 0) + '–' + c.max + '</td>' + POLL.map(p => { const b = BP[p.id][i]; return '<td class="n">' + b[0] + '–' + b[1] + '</td>'; }).join('') + '</tr>').join('') + '</tbody></table>' +
+    '<p class="note">Concentration ranges in µg/m³ (CO in mg/m³). PM2.5, PM10, NO₂ and SO₂ are 24-hour means; CO and O₃ are 8-hour means. Top band upper limits are capped for the simulator.</p>';
+}
+
+/* ---------- views and wiring ---------- */
+function showView() {
+  const v = location.hash === '#method' ? 'method' : 'simulator';
+  $('#view-simulator').hidden = v !== 'simulator'; $('#view-method').hidden = v !== 'method';
+  ['simulator', 'method'].forEach(k => { const a = $('#tab-' + k); if (k === v) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  window.scrollTo(0, 0);
+  if (v === 'simulator') requestAnimationFrame(drawCharts);
+}
+
+buildSide(); buildMethod();
+$('#hp').innerHTML = ['PM25', 'PM10', 'NO2', 'SO2', 'CO'].map(id => '<button type="button" data-hp="' + id + '" aria-pressed="false">' + labelOf(id) + '</button>').join('');
+syncSide();
+
+$('#side').addEventListener('input', e => {
+  const t = e.target; if (!t.dataset || !t.dataset.k) return;
+  state[t.dataset.s][t.dataset.k] = +t.value; state.preset = null;
+  $('#out-' + t.dataset.k).textContent = SPEC[t.dataset.k].f(+t.value);
+  document.querySelectorAll('#side [data-preset]').forEach(b => b.setAttribute('aria-pressed', 'false'));
+  schedule();
+});
+$('#side').addEventListener('change', e => {
+  if (e.target.id === 'in-season') { state.wx.season = e.target.value; state.preset = null; syncSide(); schedule(); }
+  if (e.target.id === 'same') { state.same = e.target.checked; schedule(); }
+});
+$('#side').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.preset) applyPreset(b.dataset.preset);
+  else if (b.dataset.seg) { state.cfg[b.dataset.seg] = b.dataset.v; state.preset = null; syncSide(); schedule(); }
+  else if (b.id === 'reset') applyPreset('green');
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.hp) { state.hp = b.dataset.hp; schedule(); }
+});
+$('#copy').addEventListener('click', () => {
+  const t = summaryText(), box = $('#sumbox'), ta = $('#sumtxt');
+  const fallback = () => { ta.value = t; box.hidden = false; ta.focus(); ta.select(); };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => { $('#copy').textContent = 'Copied'; setTimeout(() => { $('#copy').textContent = 'Copy scenario summary'; }, 1600); box.hidden = true; }, fallback);
+    else fallback();
+  } catch (err) { fallback(); }
+});
+let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawCharts, 120); });
+window.addEventListener('hashchange', showView);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => drawCharts());
+showView(); render();
+</script>
+
+</body></html>
